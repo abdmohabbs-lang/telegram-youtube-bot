@@ -6,34 +6,30 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 
 
-# 🔐 التحقق من التوكن بشكل احترافي
+# 🔐 التوكن من Railway
 def get_token():
     token = os.getenv("BOT_TOKEN")
-    if token is None or token.strip() == "":
-        raise RuntimeError("❌ BOT_TOKEN غير موجود في Environment Variables")
+    if not token:
+        raise RuntimeError("BOT_TOKEN is missing")
     return token
 
 
 BOT_TOKEN = get_token()
 
 
-# 🎧 إعداد yt-dlp
+# ⚙️ إعداد yt-dlp مع cookies
 YDL_OPTS = {
     "format": "bestaudio/best",
     "outtmpl": "song.%(ext)s",
     "noplaylist": True,
     "quiet": True,
-    "postprocessors": [
-        {
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }
-    ],
+    "cookiefile": "cookies.txt",  # 🔥 مهم جداً
+    "geo_bypass": True,
+    "default_search": "ytsearch",
 }
 
 
-# ⚡ معالج الرسائل
+# 🎧 معالج الرسائل
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower().strip()
 
@@ -43,28 +39,34 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = text.replace("يوت", "").strip()
 
     if not query:
-        await update.message.reply_text("اكتب اسم المقطع بعد يوت 🎧")
+        await update.message.reply_text("اكتب اسم الأغنية بعد يوت 🎧")
         return
 
     await update.message.reply_text("جاري التحميل 🎵...")
 
     try:
+        # 🔥 تحميل الصوت
         with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-            ydl.download([f"ytsearch1:{query}"])
+            ydl.download([query])
 
-        file_path = "song.mp3"
+        # 🔎 البحث عن الملف الناتج
+        file_path = None
+        for ext in ["mp3", "m4a", "webm"]:
+            if os.path.exists(f"song.{ext}"):
+                file_path = f"song.{ext}"
+                break
 
-        if os.path.exists(file_path):
+        # 📤 إرسال الملف
+        if file_path:
             with open(file_path, "rb") as audio:
                 await update.message.reply_audio(audio)
-
             os.remove(file_path)
         else:
             await update.message.reply_text("ما تم العثور على الملف ❌")
 
     except Exception as e:
         print(traceback.format_exc())
-        await update.message.reply_text(f"خطأ أثناء التحميل ❌\n{e}")
+        await update.message.reply_text(f"خطأ ❌\n{e}")
 
 
 # 🚀 تشغيل البوت
