@@ -17,16 +17,13 @@ def get_token():
 BOT_TOKEN = get_token()
 
 
-# ⚙️ أقوى إعدادات yt-dlp (Fallback متعدد)
+# 🎧 إعداد SoundCloud (بدون YouTube)
 YDL_OPTS = {
-    "format": "bestaudio[ext=m4a]/bestaudio/best",
+    "format": "bestaudio/best",
     "outtmpl": "song.%(ext)s",
     "noplaylist": True,
     "quiet": True,
-    "cookiefile": "cookies.txt",
-    "geo_bypass": True,
-    "retries": 3,
-    "fragment_retries": 3,
+    "default_search": "scsearch",  # 🔥 SoundCloud Search
     "postprocessors": [
         {
             "key": "FFmpegExtractAudio",
@@ -37,7 +34,7 @@ YDL_OPTS = {
 }
 
 
-# 🎧 المعالج
+# ⚡ المعالج
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower().strip()
 
@@ -50,13 +47,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("اكتب اسم الأغنية بعد يوت 🎧")
         return
 
-    await update.message.reply_text("جاري التحميل 🎵...")
+    await update.message.reply_text("جاري البحث والتحميل 🎵...")
 
     try:
         with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-            ydl.download([f"ytsearch1:{query}"])
+            ydl.download([query])
 
-        # البحث عن الملف النهائي
+        # البحث عن الملف
         file_path = None
         for ext in ["mp3", "m4a", "webm"]:
             if os.path.exists(f"song.{ext}"):
@@ -71,9 +68,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("ما تم العثور على الملف ❌")
 
-    except Exception:
+    except Exception as e:
         print(traceback.format_exc())
-        await update.message.reply_text("فشل التحميل ❌ حاول مرة ثانية")
+        await update.message.reply_text(f"فشل التحميل ❌\n{e}")
 
 
 # 🚀 تشغيل البوت
