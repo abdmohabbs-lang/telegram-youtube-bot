@@ -16,16 +16,18 @@ def get_token():
 
 BOT_TOKEN = get_token()
 
-# 🧠 نخزن نتائج البحث مؤقتاً
+# 🧠 تخزين النتائج
 search_cache = {}
 
 
-# ⚙️ إعداد التحميل (جودة أفضل + MP3 ثابت)
-YDL_OPTS = {
+# ⚙️ إعدادات تحميل سريعة + حماية Timeout
+YDL_DOWNLOAD_OPTS = {
     "format": "bestaudio/best",
     "quiet": True,
     "noplaylist": True,
-    "default_search": "scsearch",
+    "cookiefile": "cookies.txt",
+    "socket_timeout": 10,     # 🔥 يمنع التعليق
+    "retries": 2,
     "outtmpl": "song.%(ext)s",
     "postprocessors": [
         {
@@ -37,7 +39,16 @@ YDL_OPTS = {
 }
 
 
-# 🔎 البحث وعرض النتائج
+# 🔎 البحث السريع
+YDL_SEARCH_OPTS = {
+    "quiet": True,
+    "default_search": "scsearch3",  # 🔥 أسرع من 5
+    "noplaylist": True,
+    "socket_timeout": 8,
+}
+
+
+# ⚡ البحث وعرض النتائج
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower().strip()
 
@@ -53,22 +64,21 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("جاري البحث 🔎...")
 
     try:
-        with yt_dlp.YoutubeDL({"quiet": True, "default_search": "scsearch5"}) as ydl:
+        with yt_dlp.YoutubeDL(YDL_SEARCH_OPTS) as ydl:
             results = ydl.extract_info(query, download=False)
 
-        entries = results.get("entries", [])[:5]
+        entries = results.get("entries", [])[:3]  # 🔥 تقليل الوقت
 
         if not entries:
             await update.message.reply_text("ماكو نتائج 😢")
             return
 
-        keyboard = []
         search_cache[update.message.chat_id] = entries
 
-        for i, entry in enumerate(entries):
-            keyboard.append([
-                InlineKeyboardButton(entry["title"][:40], callback_data=str(i))
-            ])
+        keyboard = [
+            [InlineKeyboardButton(e["title"][:40], callback_data=str(i))]
+            for i, e in enumerate(entries)
+        ]
 
         await update.message.reply_text(
             "اختر الأغنية 🎧",
@@ -100,7 +110,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_text("جاري التحميل 🎵...")
 
     try:
-        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+        with yt_dlp.YoutubeDL(YDL_DOWNLOAD_OPTS) as ydl:
             ydl.download([url])
 
         file_path = "song.mp3"
