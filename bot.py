@@ -26,19 +26,19 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     'noplaylist': True,
         }
 
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.extract_info(f"ytsearch1:{query}", download=True)
+try:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.extract_info(f"ytsearch1:{query}", download=True)
 
-            if os.path.exists("song.mp3"):
-                with open("song.mp3", "rb") as f:
-                    await update.message.reply_audio(f)
-                os.remove("song.mp3")
+    if os.path.exists("song.mp3"):
+        with open("song.mp3", "rb") as f:
+            await update.message.reply_audio(f)
+        os.remove("song.mp3")
 
 except Exception as e:
     import traceback
     print(traceback.format_exc())
-    await update.message.reply_text(f"خطأ تفصيلي: {e}")
+    await update.message.reply_text(f"خطأ: {e}")
 
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
