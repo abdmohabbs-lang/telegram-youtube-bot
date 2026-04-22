@@ -1,34 +1,30 @@
 import os
 import yt_dlp
 import traceback
+import asyncio
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 
 
-# 🔐 التوكن
-def get_token():
-    token = os.getenv("BOT_TOKEN")
-    if not token:
-        raise RuntimeError("BOT_TOKEN is missing")
-    return token
-
-
-BOT_TOKEN = get_token()
-
-# 🧠 تخزين النتائج
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 search_cache = {}
 
 
-# ⚙️ إعدادات تحميل سريعة + حماية Timeout
+# ⚙️ البحث السريع
+YDL_SEARCH_OPTS = {
+    "quiet": True,
+    "default_search": "scsearch3",
+    "noplaylist": True,
+}
+
+
+# ⚙️ التحميل
 YDL_DOWNLOAD_OPTS = {
     "format": "bestaudio/best",
-    "quiet": True,
-    "noplaylist": True,
-    "cookiefile": "cookies.txt",
-    "socket_timeout": 10,     # 🔥 يمنع التعليق
-    "retries": 2,
     "outtmpl": "song.%(ext)s",
+    "quiet": True,
+    "cookiefile": "cookies.txt",
     "postprocessors": [
         {
             "key": "FFmpegExtractAudio",
@@ -39,16 +35,7 @@ YDL_DOWNLOAD_OPTS = {
 }
 
 
-# 🔎 البحث السريع
-YDL_SEARCH_OPTS = {
-    "quiet": True,
-    "default_search": "scsearch3",  # 🔥 أسرع من 5
-    "noplaylist": True,
-    "socket_timeout": 8,
-}
-
-
-# ⚡ البحث وعرض النتائج
+# 🔎 البحث (بدون تعليق البوت)
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower().strip()
 
@@ -61,13 +48,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("اكتب اسم الأغنية بعد يوت 🎧")
         return
 
+    # 🔥 رد فوري (مهم جداً لمنع timeout)
     await update.message.reply_text("جاري البحث 🔎...")
 
     try:
         with yt_dlp.YoutubeDL(YDL_SEARCH_OPTS) as ydl:
             results = ydl.extract_info(query, download=False)
 
-        entries = results.get("entries", [])[:3]  # 🔥 تقليل الوقت
+        entries = results.get("entries", [])[:3]
 
         if not entries:
             await update.message.reply_text("ماكو نتائج 😢")
@@ -87,10 +75,27 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         print(traceback.format_exc())
-        await update.message.reply_text(f"خطأ بالبحث ❌\n{e}")
+        await update.message.reply_text("خطأ بالبحث ❌")
 
 
-# 🎧 تحميل الأغنية المختارة
+# 🎧 التحميل بالخلفية (بدون تعليق البوت)
+async def download_and_send(query, url, message):
+    try:
+        with yt_dlp.YoutubeDL(YDL_DOWNLOAD_OPTS) as ydl:
+            ydl.download([url])
+
+        if os.path.exists("song.mp3"):
+            with open("song.mp3", "rb") as audio:
+                await message.reply_audio(audio)
+
+            os.remove("song.mp3")
+
+    except Exception as e:
+        print(traceback.format_exc())
+        await message.reply_text("فشل التحميل ❌")
+
+
+# 🎯 اختيار الأغنية
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -101,31 +106,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     entries = search_cache.get(chat_id)
 
     if not entries:
-        await query.message.reply_text("انتهت الجلسة، ابحث مرة ثانية")
+        await query.message.reply_text("ابدأ بحث من جديد")
         return
 
     video = entries[index]
-    url = video["url"]
 
     await query.message.reply_text("جاري التحميل 🎵...")
 
-    try:
-        with yt_dlp.YoutubeDL(YDL_DOWNLOAD_OPTS) as ydl:
-            ydl.download([url])
-
-        file_path = "song.mp3"
-
-        if os.path.exists(file_path):
-            with open(file_path, "rb") as audio:
-                await query.message.reply_audio(audio)
-
-            os.remove(file_path)
-        else:
-            await query.message.reply_text("فشل استخراج الملف ❌")
-
-    except Exception as e:
-        print(traceback.format_exc())
-        await query.message.reply_text(f"خطأ ❌\n{e}")
+    # 🔥 تشغيل بالخلفية (مهم جداً لمنع timeout)
+    asyncio.create_task(
+        download_and_send(video["title"], video["url"], query.message)
+    )
 
 
 # 🚀 تشغيل البوت
