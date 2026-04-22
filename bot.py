@@ -40,8 +40,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_audio(f)
                 os.remove("song.mp3")
 
-        except Exception as e:
-            await update.message.reply_text("صار خطأ بالتحميل ❌")
+except Exception as e:
+    import traceback
+    print(traceback.format_exc())
+    await update.message.reply_text(f"خطأ تفصيلي: {e}")
 
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
