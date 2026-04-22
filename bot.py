@@ -20,15 +20,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("جاري التحميل 🎧...")
 
         ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': 'song.%(ext)s',
-            'quiet': True,
-            'noplaylist': True,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
+    'format': 'bestaudio/best',
+    'outtmpl': 'song.%(ext)s',
+    'quiet': False,
+    'noplaylist': True,
         }
 
         try:
