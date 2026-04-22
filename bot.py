@@ -12,28 +12,52 @@ search_cache = {}
 format_cache = {}
 
 
-# 🔎 بحث متعدد
-SEARCH_OPTS = {
-    "quiet": True,
-    "noplaylist": True,
-    "default_search": "scsearch5/ytsearch5",
-}
+# 🔎 نظام بحث مستقر (SoundCloud + YouTube fallback)
+def search_music(query):
+    # 🎧 SoundCloud أولاً
+    try:
+        with yt_dlp.YoutubeDL({
+            "quiet": True,
+            "noplaylist": True,
+            "default_search": "scsearch3"
+        }) as ydl:
+            data = ydl.extract_info(query, download=False)
+
+        if data and data.get("entries"):
+            return data["entries"][:5]
+    except:
+        pass
+
+    # ▶ YouTube fallback
+    try:
+        with yt_dlp.YoutubeDL({
+            "quiet": True,
+            "noplaylist": True,
+            "default_search": "ytsearch3"
+        }) as ydl:
+            data = ydl.extract_info(query, download=False)
+
+        if data and data.get("entries"):
+            return data["entries"][:5]
+    except:
+        pass
+
+    return None
 
 
-# 🎧 تحميل حسب الجودة
+# ⚙️ إعداد التحميل
 DOWNLOAD_OPTS = {
     "outtmpl": "song.%(ext)s",
     "quiet": True,
-    "noplaylist": True,
     "retries": 3,
     "socket_timeout": 10,
-}
-
-
-FORMATS = {
-    "m4a": "bestaudio[ext=m4a]/bestaudio/best",
-    "opus": "bestaudio[ext=opus]/bestaudio/best",
-    "mp3": "bestaudio/best",
+    "postprocessors": [
+        {
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "m4a",  # 🎧 جودة أفضل من MP3
+            "preferredquality": "0",
+        }
+    ],
 }
 
 
@@ -52,10 +76,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🔎 جاري البحث...")
 
     try:
-        with yt_dlp.YoutubeDL(SEARCH_OPTS) as ydl:
-            data = ydl.extract_info(query, download=False)
-
-        entries = data.get("entries", [])[:5]
+        entries = search_music(query)
 
         if not entries:
             return await msg.edit_text("❌ ماكو نتائج")
@@ -63,7 +84,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         search_cache[update.message.chat_id] = entries
 
         keyboard = [
-            [InlineKeyboardButton(e["title"][:40], callback_data=f"song_{i}")]
+            [InlineKeyboardButton(e["title"][:40], callback_data=str(i))]
             for i, e in enumerate(entries)
         ]
 
@@ -83,74 +104,50 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     chat_id = query.message.chat_id
-    data = query.data
+    index = int(query.data)
 
-    # 🎵 اختيار أغنية
-    if data.startswith("song_"):
-        index = int(data.split("_")[1])
+    entries = search_cache.get(chat_id)
 
-        entries = search_cache.get(chat_id)
-        if not entries:
-            return await query.message.reply_text("ابحث مرة ثانية")
+    if not entries:
+        return await query.message.reply_text("ابحث مرة ثانية")
 
-        video = entries[index]
+    video = entries[index]
 
-        format_cache[chat_id] = video
+    title = video.get("title")
+    thumbnail = video.get("thumbnail")
+    url = video.get("webpage_url")
 
-        keyboard = [
-            [InlineKeyboardButton("🎵 M4A (عالي)", callback_data="fmt_m4a")],
-            [InlineKeyboardButton("⚡ OPUS (خفيف)", callback_data="fmt_opus")],
-            [InlineKeyboardButton("🎧 MP3", callback_data="fmt_mp3")],
-        ]
+    msg = await query.message.reply_photo(
+        photo=thumbnail,
+        caption=f"🎧 {title}\n⏬ جاري التحميل..."
+    )
 
-        await query.message.reply_photo(
-            photo=video.get("thumbnail"),
-            caption=f"🎧 {video.get('title')}\nاختر الجودة:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    try:
+        with yt_dlp.YoutubeDL(DOWNLOAD_OPTS) as ydl:
+            ydl.download([url])
 
-    # 🎚 اختيار الجودة
-    elif data.startswith("fmt_"):
-        fmt = data.split("_")[1]
+        file_path = None
 
-        video = format_cache.get(chat_id)
-        if not video:
-            return await query.message.reply_text("ابدأ من جديد")
+        for ext in ["m4a", "mp3", "webm", "opus"]:
+            if os.path.exists(f"song.{ext}"):
+                file_path = f"song.{ext}"
+                break
 
-        url = video["webpage_url"]
-        title = video["title"]
+        if file_path:
+            await query.message.reply_audio(
+                audio=open(file_path, "rb"),
+                title=title
+            )
+            os.remove(file_path)
 
-        await query.message.reply_text("⏬ جاري التحميل...")
+        await msg.delete()
 
-        try:
-            ydl_opts = DOWNLOAD_OPTS.copy()
-            ydl_opts["format"] = FORMATS[fmt]
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-
-            file_path = "song.mp3"
-
-            # أحياناً يكون m4a أو opus
-            for ext in ["mp3", "m4a", "opus", "webm"]:
-                if os.path.exists(f"song.{ext}"):
-                    file_path = f"song.{ext}"
-                    break
-
-            if os.path.exists(file_path):
-                await query.message.reply_audio(
-                    audio=open(file_path, "rb"),
-                    title=title
-                )
-
-                os.remove(file_path)
-
-        except Exception:
-            print(traceback.format_exc())
-            await query.message.reply_text("❌ فشل التحميل")
+    except Exception:
+        print(traceback.format_exc())
+        await query.message.reply_text("❌ فشل التحميل")
 
 
-# 🚀 تشغيل
+# 🚀 تشغيل البوت
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
