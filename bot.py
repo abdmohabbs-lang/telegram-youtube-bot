@@ -2,8 +2,8 @@ import os
 import yt_dlp
 import traceback
 
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 
 
 # 🔐 التوكن
@@ -16,14 +16,17 @@ def get_token():
 
 BOT_TOKEN = get_token()
 
+# 🧠 نخزن نتائج البحث مؤقتاً
+search_cache = {}
 
-# 🎧 إعداد SoundCloud (بدون YouTube)
+
+# ⚙️ إعداد التحميل (جودة أفضل + MP3 ثابت)
 YDL_OPTS = {
     "format": "bestaudio/best",
-    "outtmpl": "song.%(ext)s",
-    "noplaylist": True,
     "quiet": True,
-    "default_search": "scsearch",  # 🔥 SoundCloud Search
+    "noplaylist": True,
+    "default_search": "scsearch",
+    "outtmpl": "song.%(ext)s",
     "postprocessors": [
         {
             "key": "FFmpegExtractAudio",
@@ -34,7 +37,7 @@ YDL_OPTS = {
 }
 
 
-# ⚡ المعالج
+# 🔎 البحث وعرض النتائج
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower().strip()
 
@@ -47,35 +50,78 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("اكتب اسم الأغنية بعد يوت 🎧")
         return
 
-    await update.message.reply_text("جاري البحث والتحميل 🎵...")
+    await update.message.reply_text("جاري البحث 🔎...")
 
     try:
-        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-            ydl.download([query])
+        with yt_dlp.YoutubeDL({"quiet": True, "default_search": "scsearch5"}) as ydl:
+            results = ydl.extract_info(query, download=False)
 
-        # البحث عن الملف
-        file_path = None
-        for ext in ["mp3", "m4a", "webm"]:
-            if os.path.exists(f"song.{ext}"):
-                file_path = f"song.{ext}"
-                break
+        entries = results.get("entries", [])[:5]
 
-        if file_path:
-            with open(file_path, "rb") as audio:
-                await update.message.reply_audio(audio)
+        if not entries:
+            await update.message.reply_text("ماكو نتائج 😢")
+            return
 
-            os.remove(file_path)
-        else:
-            await update.message.reply_text("ما تم العثور على الملف ❌")
+        keyboard = []
+        search_cache[update.message.chat_id] = entries
+
+        for i, entry in enumerate(entries):
+            keyboard.append([
+                InlineKeyboardButton(entry["title"][:40], callback_data=str(i))
+            ])
+
+        await update.message.reply_text(
+            "اختر الأغنية 🎧",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     except Exception as e:
         print(traceback.format_exc())
-        await update.message.reply_text(f"فشل التحميل ❌\n{e}")
+        await update.message.reply_text(f"خطأ بالبحث ❌\n{e}")
+
+
+# 🎧 تحميل الأغنية المختارة
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    chat_id = query.message.chat_id
+    index = int(query.data)
+
+    entries = search_cache.get(chat_id)
+
+    if not entries:
+        await query.message.reply_text("انتهت الجلسة، ابحث مرة ثانية")
+        return
+
+    video = entries[index]
+    url = video["url"]
+
+    await query.message.reply_text("جاري التحميل 🎵...")
+
+    try:
+        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+            ydl.download([url])
+
+        file_path = "song.mp3"
+
+        if os.path.exists(file_path):
+            with open(file_path, "rb") as audio:
+                await query.message.reply_audio(audio)
+
+            os.remove(file_path)
+        else:
+            await query.message.reply_text("فشل استخراج الملف ❌")
+
+    except Exception as e:
+        print(traceback.format_exc())
+        await query.message.reply_text(f"خطأ ❌\n{e}")
 
 
 # 🚀 تشغيل البوت
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+app.add_handler(CallbackQueryHandler(button_handler))
 
 app.run_polling()
